@@ -1,0 +1,117 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main]
+
+jobs:
+  lint:
+    name: Lint & Format Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install lint tools
+        run: pip install flake8 black
+
+      - name: Run flake8
+        run: flake8 framework/ tests/ scripts/ --max-line-length=100 --exclude=__pycache__
+
+      - name: Check formatting with black
+        run: black --check framework/ tests/ scripts/ --line-length=100
+
+  test:
+    name: Framework Tests (Mock Device)
+    runs-on: ubuntu-latest
+    needs: lint
+    env:
+      MOCK_DEVICE: "true"
+      PORTAL_URL: ${{ secrets.PORTAL_URL }}
+      PORTAL_TOKEN: ${{ secrets.PORTAL_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run test suite
+        run: |
+          pytest tests/ \
+            --tb=short \
+            --junitxml=test-results.xml \
+            -v \
+            --timeout=60
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: test-results.xml
+
+      - name: Post results to portal
+        if: always() && env.PORTAL_URL != ''
+        run: python scripts/post_results.py --xml test-results.xml
+        env:
+          PORTAL_URL: ${{ secrets.PORTAL_URL }}
+          PORTAL_TOKEN: ${{ secrets.PORTAL_TOKEN }}
+          GIT_COMMIT: ${{ github.sha }}
+          GIT_BRANCH: ${{ github.ref_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+
+  portal-test:
+    name: Portal Tests
+    runs-on: ubuntu-latest
+    needs: lint
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: qa_portal_test
+          MYSQL_USER: qa_user
+          MYSQL_PASSWORD: qa_password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install portal dependencies
+        run: pip install -r requirements-portal.txt
+
+      - name: Run Django tests
+        working-directory: portal
+        env:
+          DB_HOST: 127.0.0.1
+          DB_NAME: qa_portal_test
+          DB_USER: qa_user
+          DB_PASSWORD: qa_password
+          DJANGO_SECRET_KEY: ci-test-secret-key
+        run: |
+          python manage.py migrate
+          python manage.py test results --verbosity=2

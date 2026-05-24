@@ -1,0 +1,149 @@
+{% extends "results/base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block nav_dashboard %}active{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h4 class="mb-0 fw-bold">Dashboard</h4>
+  <small class="text-muted">Last updated: now</small>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-sm-3">
+    <div class="card">
+      <div class="card-body">
+        <div class="text-muted small mb-1">Total Runs</div>
+        <div class="fs-3 fw-bold">{{ total_runs }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-sm-3">
+    <div class="card">
+      <div class="card-body">
+        <div class="text-muted small mb-1">Pass Rate (7d)</div>
+        <div class="fs-3 fw-bold {% if pass_rate_7d >= 90 %}text-success{% elif pass_rate_7d >= 75 %}text-warning{% else %}text-danger{% endif %}">
+          {{ pass_rate_7d }}%
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-sm-3">
+    <div class="card">
+      <div class="card-body">
+        <div class="text-muted small mb-1">Recent Failures</div>
+        <div class="fs-3 fw-bold text-danger">{{ recent_failures|length }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-sm-3">
+    <div class="card">
+      <div class="card-body">
+        <div class="text-muted small mb-1">Runs Tracked</div>
+        <div class="fs-3 fw-bold">{{ runs|length }}</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-12">
+    <div class="card">
+      <div class="card-body">
+        <h6 class="card-title fw-semibold">Pass Rate — Last 30 Runs</h6>
+        <canvas id="passRateChart" height="80"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card mb-4">
+  <div class="card-body">
+    <h6 class="card-title fw-semibold">Recent Test Runs</h6>
+    <div class="table-responsive">
+      <table class="table table-sm table-hover align-middle">
+        <thead class="table-light">
+          <tr>
+            <th>Branch</th>
+            <th>Commit</th>
+            <th>Status</th>
+            <th>Pass Rate</th>
+            <th>Tests</th>
+            <th>Trigger</th>
+            <th>Started</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for run in runs %}
+          <tr>
+            <td><code class="text-primary">{{ run.branch }}</code></td>
+            <td><a href="{% url 'run_detail' run.run_id %}"><code>{{ run.commit_sha|slice:":7" }}</code></a></td>
+            <td>
+              <span class="badge status-badge-{{ run.status }}">{{ run.status }}</span>
+            </td>
+            <td>
+              <div class="d-flex align-items-center gap-2">
+                <div class="progress flex-grow-1" style="height:6px;">
+                  <div class="progress-bar {% if run.pass_rate >= 90 %}bg-success{% elif run.pass_rate >= 75 %}bg-warning{% else %}bg-danger{% endif %}"
+                       style="width:{{ run.pass_rate }}%"></div>
+                </div>
+                <small>{{ run.pass_rate }}%</small>
+              </div>
+            </td>
+            <td>{{ run.total_tests }}</td>
+            <td><span class="badge bg-secondary">{{ run.triggered_by }}</span></td>
+            <td class="text-muted small">{{ run.started_at|date:"M d H:i" }}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="7" class="text-center text-muted py-4">No test runs yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+{% if recent_failures %}
+<div class="card">
+  <div class="card-body">
+    <h6 class="card-title fw-semibold text-danger"><i class="bi bi-x-circle me-1"></i>Recent Failures</h6>
+    <ul class="list-unstyled mb-0">
+      {% for failure in recent_failures %}
+      <li class="py-1 border-bottom">
+        <code class="text-danger">{{ failure.test_case.full_name }}</code>
+        <span class="text-muted small ms-2">{{ failure.run.commit_sha|slice:":7" }} · {{ failure.run.started_at|date:"M d" }}</span>
+        {% if failure.error_message %}
+        <div class="text-muted small">{{ failure.error_message|truncatechars:120 }}</div>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const ctx = document.getElementById('passRateChart');
+new Chart(ctx, {
+  type: 'line',
+  data: {
+    labels: {{ trend_labels|safe }},
+    datasets: [{
+      label: 'Pass Rate %',
+      data: {{ trend_pass_rates|safe }},
+      borderColor: '#198754',
+      backgroundColor: 'rgba(25,135,84,0.1)',
+      tension: 0.3,
+      fill: true,
+    }]
+  },
+  options: {
+    scales: {
+      y: { min: 0, max: 100, ticks: { callback: v => v + '%' } }
+    },
+    plugins: { legend: { display: false } }
+  }
+});
+</script>
+{% endblock %}

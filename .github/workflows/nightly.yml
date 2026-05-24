@@ -1,0 +1,76 @@
+name: Nightly Full Suite
+
+on:
+  schedule:
+    - cron: "0 2 * * *"  # 02:00 UTC daily
+  workflow_dispatch:
+    inputs:
+      firmware_version:
+        description: "Firmware version to test against"
+        required: false
+        default: "latest"
+
+jobs:
+  full-suite:
+    name: Full Suite — ${{ matrix.firmware }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        firmware: ["3.2.0", "3.2.1", "3.1.5"]
+
+    env:
+      MOCK_DEVICE: "true"
+      FIRMWARE_VERSION: ${{ matrix.firmware }}
+      PORTAL_URL: ${{ secrets.PORTAL_URL }}
+      PORTAL_TOKEN: ${{ secrets.PORTAL_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run full test suite — boot
+        run: pytest tests/boot/ --tb=long --junitxml=results-boot-${{ matrix.firmware }}.xml -v
+
+      - name: Run full test suite — sensor I/O
+        run: pytest tests/sensor_io/ --tb=long --junitxml=results-sensor-${{ matrix.firmware }}.xml -v
+
+      - name: Run full test suite — data integrity
+        run: pytest tests/data_integrity/ --tb=long --junitxml=results-data-${{ matrix.firmware }}.xml -v
+
+      - name: Upload nightly results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nightly-results-${{ matrix.firmware }}
+          path: results-*.xml
+
+      - name: Post nightly results to portal
+        if: always() && env.PORTAL_URL != ''
+        run: |
+          for xml in results-*.xml; do
+            python scripts/post_results.py --xml "$xml" --firmware "$FIRMWARE_VERSION"
+          done
+
+  notify-on-failure:
+    name: Slack Notification
+    runs-on: ubuntu-latest
+    needs: full-suite
+    if: failure()
+    steps:
+      - name: Send Slack alert
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {
+              "text": ":red_circle: *Nightly QA suite failed* on `${{ github.ref_name }}`\nWorkflow: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

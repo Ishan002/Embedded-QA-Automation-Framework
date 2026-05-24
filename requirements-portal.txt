@@ -1,0 +1,6 @@
+Django==4.2.9
+djangorestframework==3.14.0
+mysqlclient==2.2.4; platform_system != "Windows"
+gunicorn==21.2.0
+python-dotenv==1.0.0
+requests==2.31.0

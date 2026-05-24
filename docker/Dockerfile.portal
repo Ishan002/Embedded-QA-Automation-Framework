@@ -1,0 +1,21 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    default-libmysqlclient-dev \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements-portal.txt .
+RUN pip install --no-cache-dir -r requirements-portal.txt
+
+COPY portal/ .
+
+RUN python manage.py collectstatic --noinput || true
+
+EXPOSE 8000
+ENV PYTHONUNBUFFERED=1
+
+CMD ["gunicorn", "portal.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "2"]

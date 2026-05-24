@@ -1,0 +1,63 @@
+version: "3.9"
+
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: qa_portal
+      MYSQL_USER: qa_user
+      MYSQL_PASSWORD: qa_password
+    volumes:
+      - mysql_data:/var/lib/mysql
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-prootpassword"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  portal:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.portal
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      DB_HOST: mysql
+      DB_NAME: qa_portal
+      DB_USER: qa_user
+      DB_PASSWORD: qa_password
+      DJANGO_SECRET_KEY: change-me-in-production
+      DEBUG: "false"
+      ALLOWED_HOSTS: "localhost,127.0.0.1"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  test-runner:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    environment:
+      MOCK_DEVICE: "true"
+      PORTAL_URL: "http://portal:8000"
+      PORTAL_TOKEN: ""
+    volumes:
+      - ./results:/results
+    depends_on:
+      portal:
+        condition: service_healthy
+    profiles:
+      - runner
+
+volumes:
+  mysql_data:
